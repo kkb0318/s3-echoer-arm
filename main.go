@@ -1,19 +1,18 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	"github.com/aws/aws-sdk-go-v2/aws/external"
-	"github.com/aws/aws-sdk-go-v2/service/s3/s3manager"
-	awsv1 "github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/session"
-	s3managerv1 "github.com/aws/aws-sdk-go/service/s3/s3manager"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
 func main() {
@@ -32,27 +31,15 @@ func main() {
 	}
 	fmt.Printf("Uploading user input to S3 using %v/%v\n\n", bucket, key)
 
-	irp := false
-	if irpenv := os.Getenv("ENABLE_IRP"); irpenv != "" {
-		irp = true
-	}
-	switch irp {
-	case true:
-		err = uploadToS3IRP(bucket, key, userinput)
-		if err != nil {
-			log.Fatalf("Can't upload to S3: %v", err)
-		}
-	case false:
-		err = uploadToS3(bucket, key, userinput)
-		if err != nil {
-			log.Fatalf("Can't upload to S3: %v", err)
-		}
+	err = uploadToS3(bucket, key, userinput)
+	if err != nil {
+		log.Fatalf("Can't upload to S3: %v", err)
 	}
 }
 
 // userInput reads from stdin until it sees a CTRL+D.
 func userInput() (string, error) {
-	rawinput, err := ioutil.ReadAll(os.Stdin)
+	rawinput, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return "", err
 	}
@@ -61,32 +48,13 @@ func userInput() (string, error) {
 
 // uploadToS3 puts the payload into the S3 bucket using the key provided.
 func uploadToS3(bucket, key, payload string) error {
-	cfg, err := external.LoadDefaultAWSConfig()
+	cfg, err := config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		return err
 	}
-	uploader := s3manager.NewUploader(cfg)
-	_, err = uploader.Upload(&s3manager.UploadInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
-		Body:   strings.NewReader(payload),
-	})
-	return err
-}
-
-// uploadToS3IRP puts the payload into the S3 bucket using the key provided.
-// it uses https://github.com/aws/aws-sdk-go/releases/tag/v1.21.9 with
-// https://github.com/aws/aws-sdk-go/pull/2667
-func uploadToS3IRP(bucket, key, payload string) error {
-	region := "us-west-2"
-	if regionenv := os.Getenv("AWS_DEFAULT_REGION"); regionenv != "" {
-		region = regionenv
-	}
-	sess := session.Must(session.NewSession(&awsv1.Config{
-		Region: aws.String(region),
-	}))
-	uploader := s3managerv1.NewUploader(sess)
-	_, err := uploader.Upload(&s3managerv1.UploadInput{
+	client := s3.NewFromConfig(cfg)
+	uploader := manager.NewUploader(client)
+	_, err = uploader.Upload(context.TODO(), &s3.PutObjectInput{
 		Bucket: aws.String(bucket),
 		Key:    aws.String(key),
 		Body:   strings.NewReader(payload),
